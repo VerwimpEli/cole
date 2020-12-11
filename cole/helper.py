@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import random
 
+
 class XYDataset(torch.utils.data.Dataset):
     def __init__(self, x, y, transform=None, **kwargs):
         super(XYDataset, self).__init__()

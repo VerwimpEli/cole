@@ -6,7 +6,12 @@ import torchvision
 import random
 from cole.helper import *
 
-BASE_DATA_PATH = '../../data'
+__BASE_DATA_PATH = '../../data'
+
+
+def set_data_path(path: str):
+    global __BASE_DATA_PATH
+    __BASE_DATA_PATH = path
 
 
 class CLDataLoader:
@@ -57,8 +62,8 @@ def get_split_mnist(tasks=None, joint=False):
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
                                                 torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
-    train_set = torchvision.datasets.MNIST(BASE_DATA_PATH, train=True, download=True)
-    test_set = torchvision.datasets.MNIST(BASE_DATA_PATH, train=False, download=True)
+    train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
+    test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
 
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
@@ -78,8 +83,8 @@ def get_split_cifar10(tasks=None, joint=False):
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
                                                 torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
-    train_set = torchvision.datasets.CIFAR10(BASE_DATA_PATH, train=True, download=True)
-    test_set = torchvision.datasets.CIFAR10(BASE_DATA_PATH, train=False, download=True)
+    train_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=True, download=True)
+    test_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=False, download=True)
 
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
@@ -144,14 +149,14 @@ def test(model, loaders, avg=True, device='cpu'):
     for loader in loaders:
         loss, acc = test_dataset(model, loader, device)
         acc_arr.append(acc)
-        loss_arr.append(loss)
+        loss_arr.append(loss.item())
 
     model.train()
 
     if avg:
-        return np.mean(loss_arr), 100 * np.mean(acc_arr)
+        return 100 * np.mean(acc_arr), np.mean(loss_arr)
     else:
-        return loss_arr, acc_arr
+        return acc_arr, loss_arr
 
 
 # TODO: make sampler retriever abstract (?) such that user can implement own.

@@ -112,6 +112,17 @@ class CoreTest(unittest.TestCase):
         shuf_order_2 = torch.all(torch.cat(shuffled_order_2) == torch.cat(shuffled_order_3))
         self.assertFalse(shuf_order_2)
 
+    def test_fill_buffer(self):
+        buffer_size = 100
+        buffer = cole.Buffer(size=buffer_size, sampler="first_in")
+        data = cole.get_split_mnist(1)
+        loader = cole.CLDataLoader(data.train)[0]
+
+        for data, target in loader:
+            buffer.sample((data, target))
+
+        self.assertEqual(len(buffer), buffer_size)
+
 
 if __name__ == '__main__':
     unittest.main()

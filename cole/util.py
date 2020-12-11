@@ -4,7 +4,7 @@ import torch
 import torch.utils.data
 import torch.nn.functional as F
 import torch.autograd.functional
-from core import *
+from cole.core import *
 
 
 def build_model(path, data='mnist', device='cpu'):
@@ -94,4 +94,13 @@ class WeightPlane:
         model_weights = [[0, 0], [1, 0], [w3_x, 1]]
         return np.array(model_weights)
 
+    def inter_model_dist(self):
+        """
+        :return: l2-distances between models used to construct plane. (w1 - w2, w2 - w3, w1 - w3)
+        """
+        dist_1 = torch.dist(self.w1, self.w2)
+        dist_2 = torch.dist(self.w2, self.w3)
+        dist_3 = torch.dist(self.w3, self.w1)
+
+        return dist_1, dist_2, dist_3
 
