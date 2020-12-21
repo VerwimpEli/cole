@@ -1,3 +1,5 @@
+from abc import ABC
+
 import torch.utils.data
 import torch.nn as nn
 import torch.nn.functional as F
@@ -57,6 +59,7 @@ class SizedSampler(torch.utils.data.Sampler):
         return np.ceil(self.size // self.bs)
 
 
+# TODO: if only single task or joint, dont return array but single XY dataset. But, that would complicate loader?
 def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
     train_x, train_y = train.data, train.targets
     test_x, test_y = test.data, test.targets
@@ -146,7 +149,7 @@ def test_dataset(model, loader, device='cpu'):
 
 
 # TODO: clean up code below
-class ResBlock(nn.Module):
+class ResBlock(nn.Module, ABC):
     def __init__(self, in_channels, channels, bn=False):
         super(ResBlock, self).__init__()
 
@@ -157,10 +160,10 @@ class ResBlock(nn.Module):
             nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0)]
         if bn:
             layers.insert(2, nn.BatchNorm2d(channels))
-        self.convs = nn.Sequential(*layers)
+        self.convolutions = nn.Sequential(*layers)
 
     def forward(self, x):
-        return x + self.convs(x)
+        return x + self.convolutions(x)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -168,7 +171,7 @@ def conv3x3(in_planes, out_planes, stride=1):
                      padding=1, bias=False)
 
 
-class BasicBlock(nn.Module):
+class BasicBlock(nn.Module, ABC):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
@@ -194,7 +197,7 @@ class BasicBlock(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
+class ResNet(nn.Module, ABC):
     def __init__(self, block, num_blocks, num_classes, nf, input_size):
         super(ResNet, self).__init__()
         self.in_planes = nf
@@ -237,5 +240,3 @@ class ResNet(nn.Module):
         out = self.return_hidden(x)
         out = self.linear(out)
         return out
-
-

@@ -89,26 +89,36 @@ def get_split_cifar10(tasks=None, joint=False):
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
 
-# TODO: make similar to Resnet? Method that constructs object
-# TODO: make input size not hard coded
-# Added ABC to suppress warning
 class MLP(nn.Module, ABC):
-
-    def __init__(self, nb_classes=10, hid_nodes=400):
+    def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28):
         """
         Simple 2-layer MLP with RELU activation
         :param nb_classes: nb of outputs nodes, i.e. classes
         :param hid_nodes: nb of hidden nodes per layer
+        :param hid_layers: nb of hidden layers in model
+        :param down_sample: down sample data before entering model with a factor down_sample
+        :param input_size: data width/height before possible down_sampling
         """
         super(MLP, self).__init__()
-        self.input_size = 28 * 28
-        self.hidden = nn.Sequential(nn.Linear(self.input_size, hid_nodes),
-                                    nn.ReLU(True),
-                                    nn.Linear(hid_nodes, hid_nodes),
-                                    nn.ReLU(True))
+
+        if down_sample < 1:
+            raise ValueError(f"down_sample should be 1 or greater, got {down_sample}")
+        if hid_layers < 1:
+            raise ValueError(f"hid_layers should be 1 or greater, got {hid_layers}")
+
+        self.input_size = (input_size // down_sample) * (input_size // down_sample)
+        self.down_sample = nn.MaxPool2d(down_sample) if down_sample > 1 else None
+
+        layers = [nn.Linear(self.input_size, hid_nodes), nn.ReLU(True)]
+        for _ in range(1, hid_layers):
+            layers.extend([nn.Linear(hid_nodes, hid_nodes), nn.ReLU(True)])
+        self.hidden = nn.Sequential(*layers)
+
         self.output = nn.Linear(hid_nodes, nb_classes)
 
     def forward(self, x):
+        if self.down_sample is not None:
+            x = self.down_sample(x)
         x = x.view(-1, self.input_size)
         x = self.hidden(x)
         return self.output(x)
@@ -273,9 +283,9 @@ class RandomRetriever:
             max_size = sum([len(self.buffer.data[label]) for label in allowed_labels])
 
             try:
-                idx = sorted(random.sample(range(max_size), size))
+                idx = np.array(sorted(random.sample(range(max_size), size)))
             except ValueError:  # max_size is smaller than size
-                idx = list(range(max_size))
+                idx = np.array(list(range(max_size)))
 
             data_iter = iter(allowed_labels)
             curr_label = next(data_iter)

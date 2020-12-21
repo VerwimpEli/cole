@@ -3,7 +3,7 @@ import random
 import torch
 import torch.utils.data
 import torch.nn.functional as F
-import torch.autograd.functional
+import torch.autograd as autograd
 from cole.core import *
 
 
@@ -31,6 +31,21 @@ def laplace_matrix(a):
     return result
 
 
+def hessian(gradient, model):
+    """
+    Calculates Hessian matrix to the model parameters, based of the passed in gradient.
+    :param gradient: Gradient tensor. Has to be calculated with create_graph=True
+    :param model: model with parameters()
+    :return: Torch tensor NxN, with N model parameters
+    """
+    hess = torch.empty((gradient.numel(), gradient.numel()))
+    for i, grad_element in enumerate(gradient):
+        hess_row = autograd.grad(grad_element, model.parameters(), retain_graph=True)
+        hess_row = torch.cat([h.view(-1) for h in hess_row])
+        hess[i] = hess_row
+    return hess
+
+
 def flatten_parameters(model):
     """
     Returns the model weights as a 1D tensor
@@ -43,8 +58,12 @@ def flatten_parameters(model):
     return flat
 
 
-# TODO: find where this is used, bc don't see the use of it rn
+# TODO: merge with flatten parameters, or find better name. Test speed gain if grad not kept
 def flatten_parameters_wg(model):
+    """
+    Flattens parameters of a model but retains the gradient
+    :return: 1D torch tensor with size N, with N the model paramters
+    """
     return torch.cat([p.view(-1) for p in model.parameters()])
 
 
