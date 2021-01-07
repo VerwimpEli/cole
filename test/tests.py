@@ -1,7 +1,8 @@
-import sys
 import unittest
 import torch
 import cole
+import os
+from copy import deepcopy
 
 
 class CoreTest(unittest.TestCase):
@@ -122,6 +123,69 @@ class CoreTest(unittest.TestCase):
             buffer.sample((data, target))
 
         self.assertEqual(len(buffer), buffer_size)
+
+
+class UtilTest(unittest.TestCase):
+
+    def test_load_model_MLP(self):
+        model = cole.MLP()
+        torch.save(model.state_dict(), "./temp.pt")
+        loaded_model = cole.build_model(f"./temp.pt", 'mnist')
+        os.system("rm ./temp.pt")
+
+        flat_model = cole.flatten_parameters(model)
+        flat_loaded_model = cole.flatten_parameters(loaded_model)
+
+        compare = torch.all(flat_loaded_model == flat_model)
+        self.assertTrue(compare)
+
+    def test_load_model_resnet(self):
+        model = cole.get_resnet18()
+        torch.save(model.state_dict(), "./temp.pt")
+        loaded_model = cole.build_model(f"./temp.pt", 'cifar')
+        os.system("rm ./temp.pt")
+
+        flat_model = cole.flatten_parameters(model)
+        flat_loaded_model = cole.flatten_parameters(loaded_model)
+
+        compare = torch.all(flat_loaded_model == flat_model)
+        self.assertTrue(compare)
+
+    def test_weight_plane(self):
+        model_1, model_2, model_3 = cole.MLP(), cole.MLP(), cole.MLP()
+        plane = cole.WeightPlane(*(cole.flatten_parameters(m) for m in [model_1, model_2, model_3]))
+
+        # Assert base vectors are orthonormal for random models, ortho normality is pretty bad for random
+        self.assertAlmostEqual(torch.dot(plane.u, plane.v), 0, delta=1e-3)
+        self.assertAlmostEqual(torch.norm(plane.u).item(), 1.0, delta=1e-5)
+        self.assertAlmostEqual(torch.norm(plane.v).item(), 1.0, delta=1e-5)
+
+        flat_model_1 = torch.zeros_like(cole.flatten_parameters(model_1))
+
+        flat_model_2 = torch.zeros_like(flat_model_1)
+        flat_model_2[0] = 2.5
+        flat_model_2 += flat_model_1
+
+        flat_model_3 = torch.zeros_like(flat_model_1)
+        flat_model_3[1] = 1.5
+        flat_model_3 += flat_model_1
+
+        plane = cole.WeightPlane(flat_model_1, flat_model_2, flat_model_3)
+
+        # test plane xy to weights
+        x, y = 0.25, 0.79
+        new_weights = plane.xy_to_weights(x, y)
+        self.assertAlmostEqual(new_weights[0].item(), flat_model_1[0].item() + x * 2.5, delta=1e-5)
+        self.assertAlmostEqual(new_weights[1].item(), flat_model_1[1].item() + y * 1.5, delta=1e-5)
+
+        model_xys = plane.weights_to_xy()
+        self.assertEqual(model_xys[2][0], 0.0)
+
+        flat_model_4 = flat_model_3.clone()
+        flat_model_4[3:100] += 0.05
+        proj = plane.project_onto_plane(flat_model_4)
+        self.assertAlmostEqual(proj[0], 0)
+        self.assertAlmostEqual(proj[1], 1.0)
 
 
 if __name__ == '__main__':
