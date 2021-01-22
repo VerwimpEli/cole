@@ -47,6 +47,7 @@ class CLDataLoader:
         return len(self.data_loaders)
 
 
+# TODO: add support for single label dataset, should use different helper function
 def get_split_mnist(tasks=None, joint=False):
     """
     Get split version of the MNIST dataset.
@@ -68,6 +69,7 @@ def get_split_mnist(tasks=None, joint=False):
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
 
+# TODO: add support for single label dataset, should use different helper function
 def get_split_cifar10(tasks=None, joint=False):
     """
     Get split version of the CIFAR 10 dataset.
@@ -123,6 +125,12 @@ class MLP(nn.Module, ABC):
         x = self.hidden(x)
         return self.output(x)
 
+    def feature(self, x):
+        if self.down_sample is not None:
+            x = self.down_sample(x)
+        x = x.view(-1, self.input_size)
+        return self.hidden(x)
+
 
 def get_resnet18(nb_classes=10):
     """
@@ -170,6 +178,7 @@ def test(model, loaders, avg=True, device='cpu'):
 
 
 # TODO: make sampler retriever abstract (?) such that user can implement own.
+# TODO: although it acts as a dataset, transformed tensors are stored instead of raw images as in XYDataset
 class Buffer(torch.utils.data.Dataset):
 
     def __init__(self, size, sampler='reservoir', retriever='random'):

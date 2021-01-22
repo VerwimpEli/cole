@@ -89,29 +89,44 @@ def assign_parameters(model, params):
 
 
 class WeightPlane:
-    def __init__(self, w1, w2, w3):
+    def __init__(self, w1: torch.Tensor, w2: torch.Tensor, w3: torch.Tensor):
         """
+        ! WARNING: u and v tend to have numerical errors.
         Constructs a 2D plane spanned by w2 - w1 and w3 - w1. Parameters should be 1D.
         """
         self.w1, self.w2, self.w3 = w1, w2, w3
+
         self.u = w2 - w1
+        self.u_norm = self.u.norm()
+        self.u /= self.u_norm
+
         self.v = w3 - w1
-        self.v -= torch.dot(self.u, self.v) * self.u / torch.dot(self.u, self.u)
+        self.v -= torch.dot(self.u, self.v) * self.u
+        self.v_norm = self.v.norm()
+        self.v /= self.v_norm
 
     def xy_to_weights(self, x, y):
         """
         Transform 2D coordinates in the plane back to original coordinates.
         """
-        return self.w1 + x * self.u + y * self.v
+        return self.w1 + x * self.u_norm * self.u + y * self.v_norm * self.v
 
     def weights_to_xy(self):
         """
         :return: numpy 2D array with the coordinates of w1, w2 and w3 in the 2D plane
         """
-        non_orth_v = self.w3 - self.w1
-        w3_x = (torch.dot(self.u, non_orth_v) / torch.dot(self.u, self.u)).item()
-        model_weights = [[0, 0], [1, 0], [w3_x, 1]]
+        non_orth_v = (self.w3 - self.w1)
+        w3_x = torch.dot(self.u, non_orth_v) / self.u_norm
+        model_weights = [[0, 0], [1, 0], [w3_x.item(), 1]]
         return np.array(model_weights)
+
+    def project_onto_plane(self, weights: torch.Tensor):
+        """
+        :return: xy coordinates of the projection onto the plane span by u and v.
+        """
+        x = torch.dot(self.u, weights - self.w1) / self.u_norm
+        y = torch.dot(self.v, weights - self.w1) / self.v_norm
+        return x.item(), y.item()
 
     def inter_model_dist(self):
         """
