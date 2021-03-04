@@ -2,6 +2,7 @@ import unittest
 import torch
 import cole
 import os
+import time
 from copy import deepcopy
 
 
@@ -113,6 +114,12 @@ class CoreTest(unittest.TestCase):
         shuf_order_2 = torch.all(torch.cat(shuffled_order_2) == torch.cat(shuffled_order_3))
         self.assertFalse(shuf_order_2)
 
+    def test_single_label(self):
+
+        label = 1
+        ds = cole.get_single_label_mnist(label)
+        self.assertEqual(ds.train[0].get_labels(), {label})
+
     def test_fill_buffer(self):
         buffer_size = 100
         buffer = cole.Buffer(size=buffer_size, sampler="first_in")
@@ -123,6 +130,10 @@ class CoreTest(unittest.TestCase):
             buffer.sample((data, target))
 
         self.assertEqual(len(buffer), buffer_size)
+
+    def test_iterate_buffer(self):
+        # TODO TODO TODO
+        pass
 
 
 class UtilTest(unittest.TestCase):

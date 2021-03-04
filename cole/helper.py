@@ -22,6 +22,7 @@ class XYDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.x)
 
+    # TODO: multiple item getter reverse dimensions for some reason
     def __getitem__(self, item):
         if self.transform is not None:
             x = self.transform(self.x[item])
@@ -59,7 +60,8 @@ class SizedSampler(torch.utils.data.Sampler):
         return np.ceil(self.size // self.bs)
 
 
-def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
+# TODO: move tasks to loader, such that dataset doesn't have to be reloaded when tasks change, mainly for quicker ex.
+def make_split_dataset_old(train, test, joint=False, tasks=None, transform=None):
     train_x, train_y = train.data, train.targets
     test_x, test_y = test.data, test.targets
 
@@ -103,6 +105,50 @@ def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
     return DataSplit(train_ds, val_ds, test_ds)
 
 
+def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
+    train_x, train_y = np.array(train.data), np.array(train.targets)
+    test_x, test_y = np.array(test.data), np.array(test.targets)
+
+    train_ds, test_ds = [], []
+
+    task_labels = [[(t-1)*2, (t-1)*2 + 1] for t in tasks]
+    if joint:
+        task_labels = [[label for task in task_labels for label in task]]
+
+    for labels in task_labels:
+        train_label_idx = [y in labels for y in train_y]
+        test_label_idx = [y in labels for y in test_y]
+        train_ds.append((train_x[train_label_idx], train_y[train_label_idx]))
+        test_ds.append((test_x[test_label_idx], test_y[test_label_idx]))
+
+    train_ds, val_ds = make_valid_from_train(train_ds)
+
+    train_ds = [XYDataset(x[0], x[1], transform=transform) for x in train_ds]
+    val_ds = [XYDataset(x[0], x[1], transform=transform) for x in val_ds]
+    test_ds = [XYDataset(x[0], x[1], transform=transform) for x in test_ds]
+
+    return DataSplit(train_ds, val_ds, test_ds)
+
+
+def make_split_label_set(train, test, label, transform):
+    train_x, train_y = np.array(train.data), np.array(train.targets)
+    test_x, test_y = np.array(test.data), np.array(test.targets)
+
+    train_label_idx = np.where(train_y == label)
+    test_label_idx = np.where(test_y == label)
+
+    train_ds = (train_x[train_label_idx], train_y[train_label_idx])
+    train_ds, val_ds = make_valid_from_train([train_ds])
+    train_ds, val_ds = train_ds[0], val_ds[0]
+    test_ds = (test_x[test_label_idx], test_y[test_label_idx])
+
+    train_ds = [XYDataset(train_ds[0], train_ds[1], transform=transform)]
+    val_ds = [XYDataset(val_ds[0], val_ds[1], transform=transform)]
+    test_ds = [XYDataset(test_ds[0], test_ds[1], transform=transform)]
+
+    return DataSplit(train_ds, val_ds, test_ds)
+
+
 class DataSplit:
     def __init__(self, train_ds, val_ds, test_ds):
         self.train = train_ds
@@ -129,41 +175,26 @@ def make_valid_from_train(dataset, cut=0.95):
     return tr_ds, val_ds
 
 
-def test_dataset(model, loader, device='cpu'):
+def test_dataset(model, loader, device='cpu', loss_func=None):
     """
     Return the loss and accuracy on a single dataset (which is provided through a loader)
+    Interference is based on argmax of outputs.
     """
     loss, correct, length = 0, 0, 0
+
+    if loss_func is None:
+        loss_func = loss_wrapper("CE", reduction='sum')
 
     with torch.no_grad():
         for data, target in loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
-            loss += F.cross_entropy(output, target, reduction='sum')
+            loss += loss_func(output, target, model)
             pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
             length += len(target)
 
     return loss / length, correct / length
-
-
-# TODO: clean up code below
-# Can probably be deleted.
-# class ResBlock(nn.Module, ABC):
-#     def __init__(self, in_channels, channels, bn=False):
-#         super(ResBlock, self).__init__()
-#
-#         layers = [
-#             nn.ReLU(),
-#             nn.Conv2d(in_channels, channels, kernel_size=3, stride=1, padding=1),
-#             nn.ReLU(),
-#             nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0)]
-#         if bn:
-#             layers.insert(2, nn.BatchNorm2d(channels))
-#         self.convolutions = nn.Sequential(*layers)
-#
-#     def forward(self, x):
-#         return x + self.convolutions(x)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -242,3 +273,59 @@ class ResNet(nn.Module, ABC):
         out = self.return_hidden(x)
         out = self.linear(out)
         return out
+
+
+def loss_wrapper(loss='CE', **kwargs):
+    """
+    Create universal wrapper around loss functions, such that they can all be called with the same arguments,
+    (data, target, model, **kwargs) which is useful in other functions that use losses.
+    :param loss: "CE" for cross entropy. Optional param "reduction". "hinge" for hinge loss (c * l2 + hinge). Optional
+    parameters are "margin", "c" and "reduction".
+    :return:
+    """
+
+    if loss == 'CE':
+        reduction = kwargs["reduction"] if "reduction" in kwargs else "mean"
+
+        def ce_loss(data, target, model):
+            return F.cross_entropy(data, target, reduction=reduction)
+        return ce_loss
+
+    elif loss == "hinge":
+        margin = kwargs["margin"] if "margin" in kwargs else 1.0
+        c = kwargs["c"] if "c" in kwargs else 0.001
+        reduction = kwargs["reduction"] if "reduction" in kwargs else "mean"
+
+        def hinge(data, target, model):
+            return torch.add(c * l2_loss(model), hinge_loss(data, target, margin=margin, reduction=reduction))
+        return hinge
+
+
+def hinge_loss(output, target, margin=1.0, reduction='mean'):
+    """
+    Calculates multi label hinge loss as sum(max(0, margin + w^T x - w_i^t x))
+    :return: mean loss
+    """
+    loss = torch.tensor(0.0, requires_grad=True)
+    for x, y in zip(output, target):
+        s_loss = margin + (x - x[y])
+        s_loss[s_loss < 0] = 0
+        loss = torch.add(loss, torch.sum(s_loss) - margin)
+        # Max version of hinge loss. Theoreticaly beter, not so in practice
+        # s_loss = margin + x - x[y]
+        # s_loss[s_loss < 0] = 0
+        # if torch.argmax(s_loss) == y:
+        #     continue
+        # else:
+        #     If this is equal to the correct label, its derivative will be 0
+        #     loss = torch.add(loss, torch.pow(torch.max(s_loss), 2))
+
+    loss = loss / len(target) if reduction == 'mean' else loss
+    return loss
+
+
+def l2_loss(model):
+    """
+    Calculates l2 norm of weights. Can be used as loss.
+    """
+    return torch.sum(torch.stack([torch.norm(p) for p in model.parameters()]))

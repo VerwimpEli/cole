@@ -69,6 +69,17 @@ def get_split_mnist(tasks=None, joint=False):
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
 
+def get_single_label_mnist(label):
+
+    train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
+    test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
+
+    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+
+    return make_split_label_set(train_set, test_set, label, transform)
+
+
 # TODO: add support for single label dataset, should use different helper function
 def get_split_cifar10(tasks=None, joint=False):
     """
@@ -132,26 +143,33 @@ class MLP(nn.Module, ABC):
         return self.hidden(x)
 
 
-def get_resnet18(nb_classes=10):
+def get_resnet18(nb_classes=10, input_size=None):
     """
     :param nb_classes: nb classes or output nodes
+    :param input_size: defines size of input layer Resnet18
     :return: ResNet18 object
     """
-    return ResNet(BasicBlock, [2, 2, 2, 2], nb_classes, 20, [3, 32, 32])
+    input_size = [3, 32, 32] if input_size is None else input_size
+    return ResNet(BasicBlock, [2, 2, 2, 2], nb_classes, 20, input_size)
 
 
-def step(model, optimizer, data, target):
+def step(model, optimizer, data, target, loss_func=None):
     """
-    Updates a model a single step, based on the cross entropy loss of the given and target
+    Updates a model a single step, based on the cross entropy loss of the given and target.
+    Loss func can be any function returning a loss and taking arguments (data, target, model).
     """
+
+    if loss_func is None:
+        loss_func = loss_wrapper("CE")
+
     optimizer.zero_grad()
     output = model(data)
-    loss = F.cross_entropy(output, target)
+    loss = loss_func(output, target, model)
     loss.backward()
     optimizer.step()
 
 
-def test(model, loaders, avg=True, device='cpu'):
+def test(model, loaders, avg=True, device='cpu', loss_func=None):
     """
     Returns (mean) loss and (mean) accuracy of all loaders in loaders.
     :param loaders: iterable of data loaders
@@ -165,7 +183,7 @@ def test(model, loaders, avg=True, device='cpu'):
     loss_arr = []
 
     for loader in loaders:
-        loss, acc = test_dataset(model, loader, device)
+        loss, acc = test_dataset(model, loader, device, loss_func)
         acc_arr.append(acc)
         loss_arr.append(loss.item())
 
@@ -194,6 +212,7 @@ class Buffer(torch.utils.data.Dataset):
         self.sampler = _set_sampler(sampler)(self)
         self.retriever = _set_retriever(retriever)(self)
 
+    # TODO: None is returned during iteration
     def __getitem__(self, item):
         for label in self.data:
             if item >= len(self.data[label]):
@@ -228,6 +247,7 @@ class Buffer(torch.utils.data.Dataset):
         except KeyError:
             self.data.update([(y, [x])])
 
+    # TODO Single sample sampling should be easier, now (itr, itr) is expected
     def sample(self, data):
         self.sampler(data)
 

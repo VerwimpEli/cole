@@ -137,4 +137,3 @@ class WeightPlane:
         dist_3 = torch.dist(self.w3, self.w1)
 
         return dist_1, dist_2, dist_3
-
