@@ -135,8 +135,42 @@ class CoreTest(unittest.TestCase):
         # TODO TODO TODO
         pass
 
+    def test_balanced_buffer(self):
+        buffer_size = 100
+        tasks = [1, 2, 3]
+        labels_per_task = 2
+        buffer = cole.Buffer(size=buffer_size, sampler="balanced")
+        data = cole.get_split_mnist(tasks)
+        loaders = cole.CLDataLoader(data.train)
+
+        for loader in loaders:
+            for data, target in loader:
+                buffer.sample((data, target))
+
+        expected_size = buffer_size // (len(tasks) * labels_per_task)
+        for key in buffer.data.keys():
+            self.assertEqual(expected_size, len(buffer.data[key]))
+
+    def test_get_split_min(self):
+        tasks = (1, 2)
+        data = cole.get_split_mini_imagenet(tasks)
+        self.assertEqual({25, 71, 30, 65, 58}, data.train[0].get_labels())
+        self.assertEqual({75, 90, 95, 36, 84}, data.train[1].get_labels())
+        self.assertEqual({25, 71, 30, 65, 58}, data.test[0].get_labels())
+        self.assertEqual({75, 90, 95, 36, 84}, data.test[1].get_labels())
+
 
 class UtilTest(unittest.TestCase):
+
+    def test_create_buffer(self):
+        data = cole.get_split_mnist((1, 2))
+        res_buffer = cole.create_buffer(data, size=100, sampler="reservoir")
+        bal_buffer = cole.create_buffer(data, size=100, sampler="balanced")
+
+        self.assertEqual(4, len(res_buffer.data.keys()))
+        self.assertEqual(2, len(bal_buffer.data.keys()))
+        self.assertEqual(50, len(bal_buffer.data[0]))
+        self.assertEqual(50, len(bal_buffer.data[1]))
 
     def test_load_model_MLP(self):
         model = cole.MLP()

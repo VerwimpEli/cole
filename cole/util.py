@@ -11,7 +11,15 @@ def build_model(path, data='mnist', device='cpu'):
     """
     Loads and returns model at a given path, and sends to device
     """
-    model = MLP() if data == 'mnist' else get_resnet18()
+    if data == "mnist":
+        model = MLP()
+    elif data == "cifar":
+        model = get_resnet18()
+    elif data == "min":
+        model = get_resnet18(100, (3, 84, 84))
+    else:
+        raise ValueError(f"Unknown model, got {data}")
+
     model.load_state_dict(torch.load(path))
     model.to(device)
     return model
@@ -86,6 +94,29 @@ def assign_parameters(model, params):
             total_count += param_count
         model.load_state_dict(state_dict)
     return model
+
+
+def create_buffer(data: DataSplit, size, sampler='balanced', shuffle=True):
+    """
+    :param data: dataset to use (first task will be used first)
+    :param size: size of dataset
+    :param sampler: sampler method to use for buffer
+    :param shuffle: shuffle loader before using data
+    :return: buffer
+    """
+    buffer = Buffer(size, sampler=sampler)
+    loaders = CLDataLoader(data.train, bs=1, shuffle=shuffle)
+
+    for loader in loaders:
+        for data, target in loader:
+            if len(buffer) == size and sampler != "reservoir":
+                break
+            buffer.sample((data, target))
+        else:
+            continue
+        break
+
+    return buffer
 
 
 class WeightPlane:

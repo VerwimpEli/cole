@@ -3,6 +3,7 @@ from abc import ABC
 import torch
 import torch.utils.data
 import torchvision
+import pickle
 import random
 from cole.helper import *
 
@@ -100,6 +101,58 @@ def get_split_cifar10(tasks=None, joint=False):
     test_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=False, download=True)
 
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
+
+
+# TODO: Merge with other datasets getters, use task label file for other datasets too. Refactor reader.
+
+def get_split_mini_imagenet(tasks=None, nb_tasks=20):
+
+    if tasks is None:
+        tasks = [i for i in range(nb_tasks)]
+    if type(tasks) is int:
+        tasks = [tasks]
+
+    with open(f"{__BASE_DATA_PATH}/miniImageNet/miniImageNet.pkl", "rb") as f:
+        dataset = pickle.load(f)
+
+    task_labels = []
+    with open(f"{__BASE_DATA_PATH}/miniImageNet/split_{nb_tasks}", "r") as f:
+        counter = 1
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            if counter in tasks:
+                task_labels.append([int(e) for e in line.rstrip().split(" ")])
+            counter += 1
+
+    train_x, test_x = [], []
+    train_y, test_y = [], []
+
+    for i in range(0, len(dataset["labels"]), 600):
+        train_x.extend(dataset["data"][i:i + 500])
+        test_x.extend(dataset["data"][i + 500:i + 600])
+        train_y.extend(dataset["labels"][i:i + 500])
+        test_y.extend(dataset["labels"][i + 500:i + 600])
+
+    train_x, test_x = np.array(train_x), np.array(test_x)
+    train_y, test_y = np.array(train_y), np.array(test_y)
+
+    train_ds, test_ds = [], []
+    for labels in task_labels:
+        train_label_idx = [y in labels for y in train_y]
+        test_label_idx = [y in labels for y in test_y]
+        train_ds.append((train_x[train_label_idx], train_y[train_label_idx]))
+        test_ds.append((test_x[test_label_idx], test_y[test_label_idx]))
+
+    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                torchvision.transforms.Normalize((0.485, 0.456, 0.406),
+                                                                                 (0.229, 0.224, 0.225))])
+
+    train_ds = [XYDataset(x[0], x[1], transform=transform) for x in train_ds]
+    test_ds = [XYDataset(x[0], x[1], transform=transform) for x in test_ds]
+
+    return DataSplit(train_ds, None, test_ds)
 
 
 class MLP(nn.Module, ABC):
@@ -291,6 +344,33 @@ class FirstInSampler:
                     break
 
 
+class BalancedSampler:
+
+    def __init__(self, buffer: Buffer):
+        """
+        Samples only first buffer.size samples, but balances classes.
+        """
+        self.buffer = buffer
+        self.keys = []
+        self.current_size = buffer.size
+
+    def __call__(self, data, **kwargs):
+
+        for (x, y) in zip(*data):
+            if y in self.keys:
+                if len(self.buffer.data[y.item()]) < self.current_size:
+                    self.buffer.add_item(x, y)
+            else:
+                self.keys.append(y.item())
+                self.current_size = self.buffer.size // len(self.keys)
+                self.resize_buffer()
+                self.buffer.add_item(x, y)
+
+    def resize_buffer(self):
+        for key in self.buffer.data.keys():
+            self.buffer.data[key] = self.buffer.data[key][:self.current_size]
+
+
 class RandomRetriever:
 
     def __init__(self, buffer: Buffer):
@@ -334,7 +414,8 @@ class RandomRetriever:
 def _set_sampler(s):
     return {
         'reservoir': ReservoirSampler,
-        'first_in': FirstInSampler
+        'first_in': FirstInSampler,
+        'balanced': BalancedSampler
     }.get(s)
 
 
