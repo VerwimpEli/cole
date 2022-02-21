@@ -109,7 +109,7 @@ def create_buffer(data: DataSplit, size, sampler='balanced', shuffle=True):
 
     for loader in loaders:
         for data, target in loader:
-            if len(buffer) == size and sampler != "reservoir":
+            if len(buffer) == size and sampler == "first_in":
                 break
             buffer.sample((data, target))
         else:

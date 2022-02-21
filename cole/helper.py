@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import Sequence
 
 import torch.utils.data
 import torch.nn as nn
@@ -57,7 +58,7 @@ class SizedSampler(torch.utils.data.Sampler):
             random.shuffle(self.order)
 
     def __len__(self):
-        return np.ceil(self.size // self.bs)
+        return int(np.ceil(self.size // self.bs))
 
 
 # TODO: move tasks to loader, such that dataset doesn't have to be reloaded when tasks change, mainly for quicker ex.
@@ -105,13 +106,25 @@ def make_split_dataset_old(train, test, joint=False, tasks=None, transform=None)
     return DataSplit(train_ds, val_ds, test_ds)
 
 
-def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
+def make_split_dataset(train, test, joint=False, tasks=None, transform=None, task_labels=None):
+    """
+    Makes a sequence of split datasets based on the task idx or task labels
+    :param train: 
+    :param test: 
+    :param joint: 
+    :param tasks: 
+    :param transform: 
+    :param task_labels: 
+    :return: 
+    """
     train_x, train_y = np.array(train.data), np.array(train.targets)
     test_x, test_y = np.array(test.data), np.array(test.targets)
 
     train_ds, test_ds = [], []
 
-    task_labels = [[(t-1)*2, (t-1)*2 + 1] for t in tasks]
+    if task_labels is None:
+        task_labels = [[(t-1)*2, (t-1)*2 + 1] for t in tasks]
+    
     if joint:
         task_labels = [[label for task in task_labels for label in task]]
 
@@ -130,33 +143,35 @@ def make_split_dataset(train, test, joint=False, tasks=None, transform=None):
     return DataSplit(train_ds, val_ds, test_ds)
 
 
-def make_split_label_set(train, test, label, transform):
+# TODO: remove validation code from here, does't need it
+def make_split_label_set(train, test, labels: Sequence[int], transform):
     train_x, train_y = np.array(train.data), np.array(train.targets)
     test_x, test_y = np.array(test.data), np.array(test.targets)
 
-    train_label_idx = np.where(train_y == label)
-    test_label_idx = np.where(test_y == label)
+    train_ds, test_ds = [], []
+    for label in labels:
+        train_label_idx = np.where(train_y == label)
+        test_label_idx = np.where(test_y == label)
+        train_ds.append((train_x[train_label_idx], train_y[train_label_idx]))
+        test_ds.append((test_x[test_label_idx], test_y[test_label_idx]))
 
-    train_ds = (train_x[train_label_idx], train_y[train_label_idx])
-    train_ds, val_ds = make_valid_from_train([train_ds])
-    train_ds, val_ds = train_ds[0], val_ds[0]
-    test_ds = (test_x[test_label_idx], test_y[test_label_idx])
+    # train_ds, val_ds = make_valid_from_train(train_ds)
 
-    train_ds = [XYDataset(train_ds[0], train_ds[1], transform=transform)]
-    val_ds = [XYDataset(val_ds[0], val_ds[1], transform=transform)]
-    test_ds = [XYDataset(test_ds[0], test_ds[1], transform=transform)]
+    train_ds = [XYDataset(x[0], x[1], transform=transform) for x in train_ds]
+    # val_ds = [XYDataset(x[0], x[1], transform=transform) for x in val_ds]
+    test_ds = [XYDataset(x[0], x[1], transform=transform) for x in test_ds]
 
-    return DataSplit(train_ds, val_ds, test_ds)
+    return DataSplit(train_ds, None, test_ds)
 
 
 class DataSplit:
-    def __init__(self, train_ds, val_ds, test_ds):
+    def __init__(self, train_ds: Sequence[XYDataset], val_ds: Sequence[XYDataset], test_ds: Sequence[XYDataset]):
         self.train = train_ds
         self.validation = val_ds
         self.test = test_ds
 
 
-def make_valid_from_train(dataset, cut=0.95):
+def make_valid_from_train(dataset, cut=1.0):
     tr_ds, val_ds = [], []
     for task_ds in dataset:
         x_t, y_t = task_ds
@@ -207,18 +222,16 @@ class BasicBlock(nn.Module, ABC):
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(in_planes, planes, stride)
-        # self.bn1 = nn.BatchNorm2d(planes, track_running_stats=False)
-        self.bn1 = nn.Sequential()
+        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=True)
         self.conv2 = conv3x3(planes, planes)
-        # self.bn2 = nn.BatchNorm2d(planes, track_running_stats=False)
-        self.bn2 = nn.Sequential()
+        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=True)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
                           stride=stride, bias=False),
-                # nn.BatchNorm2d(self.expansion * planes, track_running_stats=False)
+                nn.BatchNorm2d(self.expansion * planes, track_running_stats=True)
             )
 
     def forward(self, x):
@@ -236,12 +249,12 @@ class ResNet(nn.Module, ABC):
         self.input_size = input_size
 
         self.conv1 = conv3x3(input_size[0], nf * 1)
-        # self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=False)
-        self.bn1 = nn.Sequential()
+        self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=True)
         self.layer1 = self._make_layer(block, nf * 1, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, nf * 2, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, nf * 4, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, nf * 8, num_blocks[3], stride=2)
+        self.avg_pool = nn.AvgPool2d(4)
 
         # hardcoded for now
         last_hid = nf * 8 * block.expansion if input_size[1] in [8, 16, 21, 32, 42] else 640
@@ -260,12 +273,14 @@ class ResNet(nn.Module, ABC):
         # pre_bn = self.conv1(x.view(bsz, 3, 32, 32))
         # post_bn = self.bn1(pre_bn, 1 if is_real else 0)
         # out = F.relu(post_bn)
-        out = F.relu(self.bn1(self.conv1(x.view(bsz, *self.input_size))))
+        # out = F.relu(self.bn1(self.conv1(x.view(bsz, *self.input_size))))
+        out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        out = F.avg_pool2d(out, 4)
+        out = self.avg_pool(out)
+        # out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         return out
 
@@ -273,6 +288,9 @@ class ResNet(nn.Module, ABC):
         out = self.return_hidden(x)
         out = self.linear(out)
         return out
+
+    def feature(self, x):
+        return self.return_hidden(x)
 
 
 def loss_wrapper(loss='CE', **kwargs):

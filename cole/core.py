@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import Union
 
 import torch
 import torch.utils.data
@@ -7,7 +8,7 @@ import pickle
 import random
 from cole.helper import *
 
-__BASE_DATA_PATH = '../../data'
+__BASE_DATA_PATH = '../data'
 
 
 def set_data_path(path: str):
@@ -22,6 +23,7 @@ class CLDataLoader:
 
     def __init__(self, task_datasets, bs=10, shuffle=True, task_size=0):
         """
+        CL Dataloader
         :param task_datasets: Iterable datasets
         :param bs: batch size
         :param shuffle: shuffle each task independently
@@ -70,7 +72,9 @@ def get_split_mnist(tasks=None, joint=False):
     return make_split_dataset(train_set, test_set, joint, tasks, transform)
 
 
-def get_single_label_mnist(label):
+def get_single_label_mnist(labels: Union[int, Sequence[int]]):
+    if isinstance(labels, int):
+        labels = [labels]
 
     train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
@@ -78,15 +82,16 @@ def get_single_label_mnist(label):
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
                                                 torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
-    return make_split_label_set(train_set, test_set, label, transform)
+    return make_split_label_set(train_set, test_set, labels, transform)
 
 
 # TODO: add support for single label dataset, should use different helper function
-def get_split_cifar10(tasks=None, joint=False):
+def get_split_cifar10(tasks=None, joint=False, transform=None, task_labels=None):
     """
     Get split version of the CIFAR 10 dataset.
     :param tasks: int or list with task indices. Task 1 has labels 0 and 1, etc.
     :param joint: Concatenate tasks in joint dataset
+    :param transform: Transform, if None, basic is used
     :return: DataSplit object with train, test en validation members.
     """
     if tasks is None:
@@ -94,21 +99,34 @@ def get_split_cifar10(tasks=None, joint=False):
     if type(tasks) is int:
         tasks = [tasks]
 
+    if transform is None:
+        transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+
+    train_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=True, download=True)
+    test_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=False, download=True)
+
+    return make_split_dataset(train_set, test_set, joint, tasks, transform, task_labels)
+
+
+def get_single_label_cifar10(labels: Union[int, Sequence[int]]):
+    if isinstance(labels, int):
+        labels = [labels]
+
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
                                                 torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
     train_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=False, download=True)
 
-    return make_split_dataset(train_set, test_set, joint, tasks, transform)
+    return make_split_label_set(train_set, test_set, labels, transform)
 
 
 # TODO: Merge with other datasets getters, use task label file for other datasets too. Refactor reader.
 
 def get_split_mini_imagenet(tasks=None, nb_tasks=20):
-
     if tasks is None:
-        tasks = [i for i in range(nb_tasks)]
+        tasks = [i for i in range(1, nb_tasks + 1)]
     if type(tasks) is int:
         tasks = [tasks]
 
@@ -196,17 +214,18 @@ class MLP(nn.Module, ABC):
         return self.hidden(x)
 
 
-def get_resnet18(nb_classes=10, input_size=None):
+def get_resnet18(nb_classes=10, input_size=None, nf: int = 20):
     """
     :param nb_classes: nb classes or output nodes
     :param input_size: defines size of input layer Resnet18
+    :param nf: nb of feature maps in initial layer
     :return: ResNet18 object
     """
     input_size = [3, 32, 32] if input_size is None else input_size
-    return ResNet(BasicBlock, [2, 2, 2, 2], nb_classes, 20, input_size)
+    return ResNet(BasicBlock, [2, 2, 2, 2], nb_classes, nf, input_size)
 
 
-def step(model, optimizer, data, target, loss_func=None):
+def step(model: torch.nn.Module, optimizer: torch.optim.Optimizer, data, target, loss_func=None):
     """
     Updates a model a single step, based on the cross entropy loss of the given and target.
     Loss func can be any function returning a loss and taking arguments (data, target, model).
@@ -222,7 +241,7 @@ def step(model, optimizer, data, target, loss_func=None):
     optimizer.step()
 
 
-def test(model, loaders, avg=True, device='cpu', loss_func=None):
+def test(model, loaders, avg=True, device='cpu', loss_func=None, print_result=False):
     """
     Returns (mean) loss and (mean) accuracy of all loaders in loaders.
     :param loaders: iterable of data loaders
@@ -242,6 +261,10 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None):
 
     model.train()
 
+    if print_result:
+        print(f'Acc : {np.mean(acc_arr) * 100:.2f}%  \t| {acc_arr}')
+        print(f'Loss: {np.mean(loss_arr):.4f}  \t| {loss_arr}')
+
     if avg:
         return 100 * np.mean(acc_arr), np.mean(loss_arr)
     else:
@@ -252,18 +275,18 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None):
 # TODO: although it acts as a dataset, transformed tensors are stored instead of raw images as in XYDataset
 class Buffer(torch.utils.data.Dataset):
 
-    def __init__(self, size, sampler='reservoir', retriever='random'):
+    def __init__(self, size, sampler='reservoir', retriever='random', **kwargs):
         """
         Buffer class, to be used as ER buffer. Works as a torch dataset.
         :param size: Buffer size
-        :param sampler: Sampler to use. Options: 'reservoir' (def) or 'first_in'
+        :param sampler: Sampler to use. Options: 'reservoir' (def), 'first_in' or 'balanced'
         :param retriever: Retriever to use. Options: 'random' (def)
         """
         super(Buffer, self).__init__()
         self.data = {}  # Dictionary, key is label value is x
         self.size = size
         self.sampler = _set_sampler(sampler)(self)
-        self.retriever = _set_retriever(retriever)(self)
+        self.retriever = _set_retriever(retriever)(self, **kwargs)
 
     # TODO: None is returned during iteration
     def __getitem__(self, item):
@@ -303,6 +326,17 @@ class Buffer(torch.utils.data.Dataset):
     # TODO Single sample sampling should be easier, now (itr, itr) is expected
     def sample(self, data):
         self.sampler(data)
+
+    def sample_individual(self, x, y):
+        """
+        Version to add individual samples to buffer. Because it shouldn't be used during training,
+        type checks can be performed, so any type that can be converted to a torch.Tensor is accepted.
+        """
+        if not type(y) == torch.Tensor:
+            y = torch.tensor(y, dtype=torch.long)
+        if not type(x) == torch.Tensor:
+            x = torch.tensor(x)
+        self.sampler(([x], [y]))
 
     def retrieve(self, data, size):
         return self.retriever(data, size)
@@ -373,18 +407,23 @@ class BalancedSampler:
 
 class RandomRetriever:
 
-    def __init__(self, buffer: Buffer):
+    def __init__(self, buffer: Buffer, labels_of_current_batch: bool = False, **kwargs):
         """
         Samples at random samples. Only samples with labels not in the current batch are considered.
         If no samples are found None, None is returned.
+        :param labels_of_current_batch if True, labels of the current batch are allowed in the returend samples.
         """
         self.buffer = buffer
+        self.labels_of_current_batch = labels_of_current_batch
 
     def __call__(self, data, size, **kwargs):
         _, labels = data
 
-        y = set([label.item() for label in labels])
-        allowed_labels = set(self.buffer.data.keys()) - set(y)
+        allowed_labels = set(self.buffer.data.keys())
+
+        if not self.labels_of_current_batch:
+            y = set([label.item() for label in labels])
+            allowed_labels -= y
 
         if len(allowed_labels) == 0:
             return None, None

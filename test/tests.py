@@ -135,6 +135,14 @@ class CoreTest(unittest.TestCase):
         # TODO TODO TODO
         pass
 
+    def test_buffer_sample_individual(self):
+        buffer = cole.Buffer(50)
+        y = 0
+        x = [1, 2]
+        buffer.sample_individual(x,  y)
+        self.assertEqual(len(buffer), 1)
+        self.assertTrue(torch.all(buffer.data[0][0] == torch.tensor(x)))
+
     def test_balanced_buffer(self):
         buffer_size = 100
         tasks = [1, 2, 3]
@@ -158,19 +166,24 @@ class CoreTest(unittest.TestCase):
         self.assertEqual({75, 90, 95, 36, 84}, data.train[1].get_labels())
         self.assertEqual({25, 71, 30, 65, 58}, data.test[0].get_labels())
         self.assertEqual({75, 90, 95, 36, 84}, data.test[1].get_labels())
+        self.assertEqual(5 * 100, len(data.test[0]))
+        self.assertEqual(5 * 100, len(data.test[1]))
+        self.assertEqual(5 * 500, len(data.train[0]))
+        self.assertEqual(5 * 500, len(data.train[1]))
 
 
 class UtilTest(unittest.TestCase):
 
     def test_create_buffer(self):
         data = cole.get_split_mnist((1, 2))
+        data_2 = cole.get_split_mnist((1, ))
         res_buffer = cole.create_buffer(data, size=100, sampler="reservoir")
-        bal_buffer = cole.create_buffer(data, size=100, sampler="balanced")
+        bal_buffer = cole.create_buffer(data_2, size=2, sampler="balanced")
 
         self.assertEqual(4, len(res_buffer.data.keys()))
         self.assertEqual(2, len(bal_buffer.data.keys()))
-        self.assertEqual(50, len(bal_buffer.data[0]))
-        self.assertEqual(50, len(bal_buffer.data[1]))
+        self.assertEqual(1, len(bal_buffer.data[0]))
+        self.assertEqual(1, len(bal_buffer.data[1]))
 
     def test_load_model_MLP(self):
         model = cole.MLP()
