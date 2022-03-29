@@ -1,4 +1,5 @@
 from abc import ABC
+from collections import defaultdict
 from typing import Sequence
 
 import torch.utils.data
@@ -193,7 +194,7 @@ def make_valid_from_train(dataset, cut=1.0):
 def test_dataset(model, loader, device='cpu', loss_func=None):
     """
     Return the loss and accuracy on a single dataset (which is provided through a loader)
-    Interference is based on argmax of outputs.
+    Predicted logit is the argmax of the ouptut
     """
     loss, correct, length = 0, 0, 0
 
@@ -210,6 +211,28 @@ def test_dataset(model, loader, device='cpu', loss_func=None):
             length += len(target)
 
     return loss / length, correct / length
+
+
+@torch.no_grad()
+def test_dataset_per_class(model: nn.Module, loader: torch.utils.data.DataLoader, device='cpu'):
+
+    losses, length, correct = defaultdict(float), defaultdict(float), defaultdict(float)
+
+    for data, target in loader:
+        data, target = data.to(device), target.to(device)
+        output = model(data)
+        loss = torch.nn.functional.cross_entropy(output, target, reduction='none')
+        pred = output.argmax(dim=1)
+
+        for lo, pr, ta in zip(loss, pred, target):
+            ta = ta.item()
+            losses[ta] += lo.item()
+            length[ta] += 1
+            if pr.item() == ta:
+                correct[ta] += 1
+            
+    return {label: losses[label] / length[label] for label in losses.keys()}, \
+           {label: correct[label] / length[label] for label in losses.keys()}
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -259,6 +282,7 @@ class ResNet(nn.Module, ABC):
         # hardcoded for now
         last_hid = nf * 8 * block.expansion if input_size[1] in [8, 16, 21, 32, 42] else 640
         self.linear = nn.Linear(last_hid, num_classes)
+        self.fc = self.linear
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)

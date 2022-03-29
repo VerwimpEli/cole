@@ -21,7 +21,7 @@ class CLDataLoader:
     Sequential dataloader for continual learning tasks.
     """
 
-    def __init__(self, task_datasets, bs=10, shuffle=True, task_size=0):
+    def __init__(self, task_datasets, bs=10, shuffle=True, num_workers=0, task_size=0):
         """
         CL Dataloader
         :param task_datasets: Iterable datasets
@@ -38,10 +38,12 @@ class CLDataLoader:
 
         for task in task_datasets:
             if task_size > len(task) or task_size == 0:
-                self.data_loaders.append(torch.utils.data.DataLoader(task, self.bs, shuffle=shuffle))
+                self.data_loaders.append(torch.utils.data.DataLoader(task, self.bs, shuffle=shuffle,
+                                                                     num_workers=num_workers))
             else:
                 sampler = SizedSampler(task, task_size, batch_size=bs, shuffle=shuffle)
-                self.data_loaders.append(torch.utils.data.DataLoader(task, batch_sampler=sampler))
+                self.data_loaders.append(torch.utils.data.DataLoader(task, batch_sampler=sampler,
+                                                                     num_workers=num_workers))
 
     def __getitem__(self, item):
         return self.data_loaders[item]
@@ -51,7 +53,7 @@ class CLDataLoader:
 
 
 # TODO: add support for single label dataset, should use different helper function
-def get_split_mnist(tasks=None, joint=False):
+def get_split_mnist(tasks=None, joint=False, task_labels=None):
     """
     Get split version of the MNIST dataset.
     :param tasks: int or list with task indices. Task 1 has labels 0 and 1, etc.
@@ -69,7 +71,7 @@ def get_split_mnist(tasks=None, joint=False):
     train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
 
-    return make_split_dataset(train_set, test_set, joint, tasks, transform)
+    return make_split_dataset(train_set, test_set, joint, tasks, transform, task_labels)
 
 
 def get_single_label_mnist(labels: Union[int, Sequence[int]]):
@@ -133,7 +135,9 @@ def get_split_cifar100(task_labels: Sequence[Sequence[int]], joint=False, transf
 
     if transform is None:
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+                                                    torchvision.transforms.Normalize((0.5071, 0.4866, 0.4409),
+                                                                                     (0.2009, 0.1984, 0.2023)),
+                                                    ])
 
     train_set = torchvision.datasets.CIFAR100(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.CIFAR100(__BASE_DATA_PATH, train=False, download=True)
@@ -287,6 +291,31 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None, print_result=Fa
         return 100 * np.mean(acc_arr), np.mean(loss_arr)
     else:
         return acc_arr, loss_arr
+
+
+def test_per_class(model, loader, device='cpu', print_result=False):
+
+    if isinstance(loader, torch.utils.data.DataLoader):
+        loader = [loader]
+
+    loss, acc = {}, {}
+    model.eval()
+    for load in loader:
+        loader_loss, loader_acc = test_dataset_per_class(model, load, device)
+        loss.update(loader_loss)
+        acc.update(loader_acc)
+    model.train()
+
+    if print_result:
+        print(f'Acc: {np.mean(list(acc.values())) * 100:.2f}', end='\t')
+        fmt_str = '{}: {:.3f}  ' * len(acc)
+        sorted_keys = sorted(list(acc.keys()))
+        print(fmt_str.format(*[x for key in sorted_keys for x in [key, acc[key]]]))
+
+        print(f'Loss: {np.mean(list(loss.values())) * 100:.2f}', end='\t')
+        print(fmt_str.format(*[x for key in sorted_keys for x in [key, loss[key]]]))
+
+    return acc, loss
 
 
 # TODO: make sampler retriever abstract (?) such that user can implement own.
