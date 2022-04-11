@@ -1,4 +1,5 @@
 from abc import ABC
+from collections import Counter
 from typing import Union
 
 import torch
@@ -326,7 +327,7 @@ class Buffer(torch.utils.data.Dataset):
         """
         Buffer class, to be used as ER buffer. Works as a torch dataset.
         :param size: Buffer size
-        :param sampler: Sampler to use. Options: 'reservoir' (def), 'first_in' or 'balanced'
+        :param sampler: Sampler to use. Options: 'reservoir' (def), 'first_in', 'balanced_res' or 'balanced'
         :param retriever: Retriever to use. Options: 'random' (def)
         """
         super(Buffer, self).__init__()
@@ -405,6 +406,36 @@ class ReservoirSampler:
                     self.buffer.pop(r)
                     self.buffer.add_item(x, y)
         self.seen_samples += len(data[0])
+
+
+class BalancedReservoirSampler:
+
+    def __init__(self, buffer: Buffer):
+        self.buffer = buffer
+        self.seen_samples = {}
+        self.current_size = buffer.size
+
+    def __call__(self, data, **kwargs):
+        for idx, (x, y) in enumerate(zip(*data)):
+            if y.item() in self.seen_samples.keys():
+                if self.seen_samples[y.item()] < self.current_size:
+                    self.buffer.add_item(x, y)
+                    self.seen_samples[y.item()] += 1
+                else:
+                    r = np.random.randint(0, self.seen_samples[y.item()])
+                    if r < self.current_size:
+                        self.buffer.data[y.item()].pop(r)
+                        self.buffer.add_item(x, y)
+                        self.seen_samples[y.item()] += 1
+            else:
+                self.seen_samples[y.item()] = 1
+                self.current_size = self.buffer.size // len(self.seen_samples)
+                self.resize_buffer()
+                self.buffer.add_item(x, y)
+
+    def resize_buffer(self):
+        for key in self.buffer.data.keys():
+            self.buffer.data[key] = self.buffer.data[key][:self.current_size]
 
 
 class FirstInSampler:
@@ -497,15 +528,63 @@ class RandomRetriever:
             return torch.stack(retrieved_x), torch.tensor(retrieved_y)
 
 
+class BalancedRetriever:
+
+    def __init__(self, buffer: Buffer, labels_of_current_batch: bool = False, **kwargs):
+        """
+        Samples at random samples. Only samples with labels not in the current batch are considered.
+        If no samples are found None, None is returned.
+        :param labels_of_current_batch if True, labels of the current batch are allowed in the returend samples.
+        """
+        self.buffer = buffer
+        self.labels_of_current_batch = labels_of_current_batch
+
+    def __call__(self, data, size, **kwargs):
+
+        # TODO: currently this goes over max size if too many of one class is in the current data
+        # but don't know whether that's really a problem
+
+        _, labels = data
+        labels = labels.tolist()
+
+        counts = Counter(labels)
+        for key in self.buffer.data.keys():
+            if key not in counts:
+                counts[key] = 0
+
+        optimal_count = (len(labels) + size) // len(self.buffer.data.keys())
+        counts = {k: optimal_count - v for k, v in counts.items()}
+
+        retrieved_x, retrieved_y = [], []
+
+        for k, v in counts.items():
+            if v > 0:
+                max_size = len(self.buffer.data[k])
+                try:
+                    idx = np.array(sorted(random.sample(range(max_size), v)))
+                except ValueError:  # max_size is smaller than size
+                    idx = np.array(list(range(max_size)))
+                for i in idx:
+                    retrieved_x.append(self.buffer.data[k][i])
+                    retrieved_y.append(k)
+
+        if len(retrieved_y) > 0:
+            return torch.stack(retrieved_x), torch.tensor(retrieved_y)
+        else:
+            return None, None
+
+
 def _set_sampler(s):
     return {
         'reservoir': ReservoirSampler,
         'first_in': FirstInSampler,
-        'balanced': BalancedSampler
+        'balanced': BalancedSampler,
+        'balanced_res': BalancedReservoirSampler
     }.get(s)
 
 
 def _set_retriever(r):
     return {
-        'random': RandomRetriever
+        'random': RandomRetriever,
+        'balanced': BalancedRetriever
     }.get(r)
