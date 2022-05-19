@@ -53,8 +53,9 @@ class CLDataLoader:
         return len(self.data_loaders)
 
 
+# TODO!! mean and std for mnist and cifar10 are the same?
 # TODO: add support for single label dataset, should use different helper function
-def get_split_mnist(tasks=None, joint=False, task_labels=None):
+def get_split_mnist(tasks=None, joint=False, task_labels=None, transform=None):
     """
     Get split version of the MNIST dataset.
     :param tasks: int or list with task indices. Task 1 has labels 0 and 1, etc.
@@ -66,8 +67,9 @@ def get_split_mnist(tasks=None, joint=False, task_labels=None):
     if type(tasks) is int:
         tasks = [tasks]
 
-    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+    if transform is None:
+        transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
     train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
@@ -294,26 +296,26 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None, print_result=Fa
         return acc_arr, loss_arr
 
 
-def test_per_class(model, loader, device='cpu', print_result=False):
+def test_per_class(model, loaders, device='cpu', print_result=False):
 
-    if isinstance(loader, torch.utils.data.DataLoader):
-        loader = [loader]
+    if isinstance(loaders, torch.utils.data.DataLoader):
+        loaders = [loaders]
 
     loss, acc = {}, {}
     model.eval()
-    for load in loader:
+    for load in loaders:
         loader_loss, loader_acc = test_dataset_per_class(model, load, device)
         loss.update(loader_loss)
         acc.update(loader_acc)
     model.train()
 
     if print_result:
-        print(f'Acc: {np.mean(list(acc.values())) * 100:.2f}', end='\t')
+        print(f'Acc: {np.mean(list(acc.values())) * 100:.2f}'.ljust(20), end='\t')
         fmt_str = '{}: {:.3f}  ' * len(acc)
         sorted_keys = sorted(list(acc.keys()))
         print(fmt_str.format(*[x for key in sorted_keys for x in [key, acc[key]]]))
 
-        print(f'Loss: {np.mean(list(loss.values())) * 100:.2f}', end='\t')
+        print(f'Loss: {np.mean(list(loss.values())):.5e}'.ljust(20), end='\t')
         print(fmt_str.format(*[x for key in sorted_keys for x in [key, loss[key]]]))
 
     return acc, loss
