@@ -100,7 +100,7 @@ def get_split_cifar10(tasks=None, joint=False, transform=None, task_labels=None)
     :return: DataSplit object with train, test en validation members.
     """
     if tasks is None:
-        tasks = [i for i in range(5)]
+        tasks = [i for i in range(6)]
     if type(tasks) is int:
         tasks = [tasks]
 
@@ -199,7 +199,7 @@ def get_split_mini_imagenet(tasks=None, nb_tasks=20):
 
 
 class MLP(nn.Module, ABC):
-    def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28):
+    def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28, in_channels=3):
         """
         Simple 2-layer MLP with RELU activation
         :param nb_classes: nb of outputs nodes, i.e. classes
@@ -215,7 +215,7 @@ class MLP(nn.Module, ABC):
         if hid_layers < 1:
             raise ValueError(f"hid_layers should be 1 or greater, got {hid_layers}")
 
-        self.input_size = (input_size // down_sample) * (input_size // down_sample)
+        self.input_size = (input_size // down_sample) * (input_size // down_sample) * in_channels
         self.down_sample = nn.MaxPool2d(down_sample) if down_sample > 1 else None
 
         layers = [nn.Linear(self.input_size, hid_nodes), nn.ReLU(True)]
