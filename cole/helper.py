@@ -280,7 +280,7 @@ class ResNet(nn.Module, ABC):
         self.avg_pool = nn.AvgPool2d(4)
 
         # hardcoded for now
-        last_hid = nf * 8 * block.expansion if input_size[1] in [8, 16, 21, 32, 42] else 640
+        last_hid = nf * 8 * block.expansion if input_size[1] in [8, 16, 21, 32, 42] else 160
         self.linear = nn.Linear(last_hid, num_classes)
         self.fc = self.linear
 
