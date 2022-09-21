@@ -74,7 +74,8 @@ def get_split_mnist(tasks=None, joint=False, task_labels=None, transform=None):
     train_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.MNIST(__BASE_DATA_PATH, train=False, download=True)
 
-    return make_split_dataset(train_set, test_set, joint, tasks, transform, task_labels)
+    return make_split_dataset(train_set, test_set, joint, tasks, train_transform=transform,
+                              test_transform=transform, task_labels=task_labels)
 
 
 def get_single_label_mnist(labels: Union[int, Sequence[int]]):
@@ -91,12 +92,14 @@ def get_single_label_mnist(labels: Union[int, Sequence[int]]):
 
 
 # TODO: add support for single label dataset, should use different helper function
-def get_split_cifar10(tasks=None, joint=False, transform=None, task_labels=None):
+def get_split_cifar10(tasks=None, joint=False, train_transform=None, test_transform=None, task_labels=None):
     """
     Get split version of the CIFAR 10 dataset.
     :param tasks: int or list with task indices. Task 1 has labels 0 and 1, etc.
     :param joint: Concatenate tasks in joint dataset
-    :param transform: Transform, if None, basic is used
+    :param train_transform: Train transform. If None, default normalization is used.
+    :param test_transform: Test transform. If None, default normalization is used.
+    :param task_labels: if not the default task, this can be an Iterable with the labels per task
     :return: DataSplit object with train, test en validation members.
     """
     if tasks is None:
@@ -104,14 +107,17 @@ def get_split_cifar10(tasks=None, joint=False, transform=None, task_labels=None)
     if type(tasks) is int:
         tasks = [tasks]
 
-    if transform is None:
-        transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+    if train_transform is None:
+        train_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                          torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+    if test_transform is None:
+        test_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                         torchvision.transforms.Normalize((0.1307,), (0.3081,))])
 
     train_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.CIFAR10(__BASE_DATA_PATH, train=False, download=True)
 
-    return make_split_dataset(train_set, test_set, joint, tasks, transform, task_labels)
+    return make_split_dataset(train_set, test_set, joint, tasks, train_transform, test_transform, task_labels)
 
 
 def get_single_label_cifar10(labels: Union[int, Sequence[int]]):
@@ -199,7 +205,7 @@ def get_split_mini_imagenet(tasks=None, nb_tasks=20):
 
 
 class MLP(nn.Module, ABC):
-    def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28, in_channels=3):
+    def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28, in_channels=1):
         """
         Simple 2-layer MLP with RELU activation
         :param nb_classes: nb of outputs nodes, i.e. classes
@@ -297,7 +303,6 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None, print_result=Fa
 
 
 def test_per_class(model, loaders, device='cpu', print_result=False):
-
     if isinstance(loaders, torch.utils.data.DataLoader):
         loaders = [loaders]
 

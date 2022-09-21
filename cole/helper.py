@@ -107,15 +107,17 @@ def make_split_dataset_old(train, test, joint=False, tasks=None, transform=None)
     return DataSplit(train_ds, val_ds, test_ds)
 
 
-def make_split_dataset(train, test, joint=False, tasks=None, transform=None, task_labels=None):
+def make_split_dataset(train, test, joint=False, tasks=None, train_transform=None, test_transform=None,
+                       task_labels=None):
     """
     Makes a sequence of split datasets based on the task idx or task labels
     :param train: 
     :param test: 
     :param joint: 
     :param tasks: 
-    :param transform: 
-    :param task_labels: 
+    :param train_transform:
+    :param test_transform:
+    :param task_labels:
     :return: 
     """
     train_x, train_y = np.array(train.data), np.array(train.targets)
@@ -137,9 +139,9 @@ def make_split_dataset(train, test, joint=False, tasks=None, transform=None, tas
 
     train_ds, val_ds = make_valid_from_train(train_ds)
 
-    train_ds = [XYDataset(x[0], x[1], transform=transform) for x in train_ds]
-    val_ds = [XYDataset(x[0], x[1], transform=transform) for x in val_ds]
-    test_ds = [XYDataset(x[0], x[1], transform=transform) for x in test_ds]
+    train_ds = [XYDataset(x[0], x[1], transform=train_transform) for x in train_ds]
+    val_ds = [XYDataset(x[0], x[1], transform=test_transform) for x in val_ds]
+    test_ds = [XYDataset(x[0], x[1], transform=test_transform) for x in test_ds]
 
     return DataSplit(train_ds, val_ds, test_ds)
 
@@ -245,16 +247,16 @@ class BasicBlock(nn.Module, ABC):
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(in_planes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=False)
+        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=False)
+        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=True)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
                           stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion * planes, track_running_stats=False)
+                nn.BatchNorm2d(self.expansion * planes, track_running_stats=True)
             )
 
     def forward(self, x):
@@ -272,7 +274,7 @@ class ResNet(nn.Module, ABC):
         self.input_size = input_size
 
         self.conv1 = conv3x3(input_size[0], nf * 1)
-        self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=False)
+        self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=True)
         self.layer1 = self._make_layer(block, nf * 1, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, nf * 2, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, nf * 4, num_blocks[2], stride=2)
