@@ -133,25 +133,29 @@ def get_single_label_cifar10(labels: Union[int, Sequence[int]]):
     return make_split_label_set(train_set, test_set, labels, transform)
 
 
-def get_split_cifar100(task_labels: Sequence[Sequence[int]], joint=False, transform=None, ):
+def get_split_cifar100(task_labels: Sequence[Sequence[int]], joint=False, train_transform=None, test_transform=None):
     """
         Get split version of the CIFAR 100 dataset.
         :param task_labels: Sequence of integer sequences
         :param joint: Concatenate tasks in joint dataset
-        :param transform: Transform, if None, basic is used
+        :param train_transform: Transform for training, if None, basic is used
+        :param test_transform: Transform for testing, if None, basic is used
         :return: DataSplit object with train, test en validation members.
         """
 
-    if transform is None:
-        transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize((0.5071, 0.4866, 0.4409),
-                                                                                     (0.2009, 0.1984, 0.2023)),
-                                                    ])
+    if train_transform is None:
+        train_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                          torchvision.transforms.Normalize((0.5071, 0.4866, 0.4409),
+                                                                                           (0.2009, 0.1984, 0.2023))])
+    if test_transform is None:
+        test_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                         torchvision.transforms.Normalize((0.5071, 0.4866, 0.4409),
+                                                                                          (0.2009, 0.1984, 0.2023))])
 
     train_set = torchvision.datasets.CIFAR100(__BASE_DATA_PATH, train=True, download=True)
     test_set = torchvision.datasets.CIFAR100(__BASE_DATA_PATH, train=False, download=True)
 
-    return make_split_dataset(train_set, test_set, joint, None, transform, task_labels)
+    return make_split_dataset(train_set, test_set, joint, None, train_transform, test_transform, task_labels)
 
 
 # TODO: Merge with other datasets getters, use task label file for other datasets too. Refactor reader.
