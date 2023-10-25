@@ -159,25 +159,17 @@ def get_split_cifar100(task_labels: Sequence[Sequence[int]], joint=False, train_
 
 
 # TODO: Merge with other datasets getters, use task label file for other datasets too. Refactor reader.
-def get_split_mini_imagenet(tasks=None, nb_tasks=20):
-    if tasks is None:
-        tasks = [i for i in range(1, nb_tasks + 1)]
-    if type(tasks) is int:
-        tasks = [tasks]
 
-    with open(f"{__BASE_DATA_PATH}/miniImageNet/miniImageNet.pkl", "rb") as f:
+def get_split_mini_imagenet(task_labels: Sequence[Sequence[int]], joint=False, train_transform=None,
+                            test_transform=None, path=None):
+    if path is None:
+        path = f"{__BASE_DATA_PATH}/miniImageNet/miniImageNet.pkl"
+
+    with open(path, "rb") as f:
         dataset = pickle.load(f)
 
-    task_labels = []
-    with open(f"{__BASE_DATA_PATH}/miniImageNet/split_{nb_tasks}", "r") as f:
-        counter = 1
-        while True:
-            line = f.readline()
-            if not line:
-                break
-            if counter in tasks:
-                task_labels.append([int(e) for e in line.rstrip().split(" ")])
-            counter += 1
+    if joint:
+        task_labels = [[label for task in task_labels for label in task]]
 
     train_x, test_x = [], []
     train_y, test_y = [], []
@@ -198,12 +190,16 @@ def get_split_mini_imagenet(tasks=None, nb_tasks=20):
         train_ds.append((train_x[train_label_idx], train_y[train_label_idx]))
         test_ds.append((test_x[test_label_idx], test_y[test_label_idx]))
 
-    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                torchvision.transforms.Normalize((0.485, 0.456, 0.406),
-                                                                                 (0.229, 0.224, 0.225))])
+    default_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
+                                                        torchvision.transforms.Normalize((0.485, 0.456, 0.406),
+                                                                                         (0.229, 0.224, 0.225))])
+    if train_transform is None:
+        train_transform = default_transform
+    if test_transform is None:
+        test_transform = default_transform
 
-    train_ds = [XYDataset(x[0], x[1], transform=transform) for x in train_ds]
-    test_ds = [XYDataset(x[0], x[1], transform=transform) for x in test_ds]
+    train_ds = [XYDataset(x[0], x[1], transform=train_transform) for x in train_ds]
+    test_ds = [XYDataset(x[0], x[1], transform=test_transform) for x in test_ds]
 
     return DataSplit(train_ds, None, test_ds)
 

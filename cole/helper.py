@@ -120,8 +120,11 @@ def make_split_dataset(train, test, joint=False, tasks=None, train_transform=Non
     :param task_labels:
     :return: 
     """
-    train_x, train_y = np.array(train.data), np.array(train.targets)
-    test_x, test_y = np.array(test.data), np.array(test.targets)
+    # train_x, train_y = np.array(train.data), np.array(train.targets)
+    # test_x, test_y = np.array(test.data), np.array(test.targets)
+
+    train_x, train_y = torch.tensor(train.data).permute(0, 3, 1, 2), torch.tensor(train.targets)
+    test_x, test_y = torch.tensor(test.data).permute(0, 3, 1, 2), torch.tensor(test.targets)
 
     train_ds, test_ds = [], []
 
@@ -146,7 +149,7 @@ def make_split_dataset(train, test, joint=False, tasks=None, train_transform=Non
     return DataSplit(train_ds, val_ds, test_ds)
 
 
-# TODO: remove validation code from here, does't need it
+# TODO: remove validation code from here, doesn't need it
 def make_split_label_set(train, test, labels: Sequence[int], transform):
     train_x, train_y = np.array(train.data), np.array(train.targets)
     test_x, test_y = np.array(test.data), np.array(test.targets)
