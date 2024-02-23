@@ -86,8 +86,10 @@ def assign_parameters(model, params):
     with torch.no_grad():
         total_count = 0
         for param in state_dict.keys():
-            if 'running_mean' in param or 'running_var' in param or 'num_batches_tracked' in param:
+            if 'running_mean' in param or 'running_var' in param or 'num_batches_tracked' in param or 'fc' in param:
                 continue
+            # if 'fc' in param:
+            #     continue
             param_count = state_dict[param].numel()
             param_size = state_dict[param].shape
             state_dict[param] = params[total_count:total_count+param_count].view(param_size).clone()

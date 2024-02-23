@@ -1,6 +1,6 @@
 from abc import ABC
 from collections import defaultdict
-from typing import Sequence
+from typing import Sequence, Dict
 
 import torch.utils.data
 import torch.nn as nn
@@ -120,11 +120,11 @@ def make_split_dataset(train, test, joint=False, tasks=None, train_transform=Non
     :param task_labels:
     :return: 
     """
-    # train_x, train_y = np.array(train.data), np.array(train.targets)
-    # test_x, test_y = np.array(test.data), np.array(test.targets)
+    train_x, train_y = np.array(train.data), np.array(train.targets)
+    test_x, test_y = np.array(test.data), np.array(test.targets)
 
-    train_x, train_y = torch.tensor(train.data).permute(0, 3, 1, 2), torch.tensor(train.targets)
-    test_x, test_y = torch.tensor(test.data).permute(0, 3, 1, 2), torch.tensor(test.targets)
+    # train_x, train_y = torch.tensor(train.data).permute(0, 3, 1, 2), torch.tensor(train.targets)
+    # test_x, test_y = torch.tensor(test.data).permute(0, 3, 1, 2), torch.tensor(test.targets)
 
     train_ds, test_ds = [], []
 
@@ -140,7 +140,8 @@ def make_split_dataset(train, test, joint=False, tasks=None, train_transform=Non
         train_ds.append((train_x[train_label_idx], train_y[train_label_idx]))
         test_ds.append((test_x[test_label_idx], test_y[test_label_idx]))
 
-    train_ds, val_ds = make_valid_from_train(train_ds)
+    # train_ds, val_ds = make_valid_from_train(train_ds)
+    val_ds = []
 
     train_ds = [XYDataset(x[0], x[1], transform=train_transform) for x in train_ds]
     val_ds = [XYDataset(x[0], x[1], transform=test_transform) for x in val_ds]
@@ -199,7 +200,7 @@ def make_valid_from_train(dataset, cut=1.0):
 def test_dataset(model, loader, device='cpu', loss_func=None):
     """
     Return the loss and accuracy on a single dataset (which is provided through a loader)
-    Predicted logit is the argmax of the ouptut
+    Predicted logit is the argmax of the output.
     """
     loss, correct, length = 0, 0, 0
 
@@ -250,16 +251,16 @@ class BasicBlock(nn.Module, ABC):
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(in_planes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=True)
+        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=False)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=True)
+        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=False)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
                           stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion * planes, track_running_stats=True)
+                nn.BatchNorm2d(self.expansion * planes, track_running_stats=False)
             )
 
     def forward(self, x):
@@ -277,7 +278,7 @@ class ResNet(nn.Module, ABC):
         self.input_size = input_size
 
         self.conv1 = conv3x3(input_size[0], nf * 1)
-        self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=True)
+        self.bn1 = nn.BatchNorm2d(nf * 1, track_running_stats=False)
         self.layer1 = self._make_layer(block, nf * 1, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, nf * 2, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, nf * 4, num_blocks[2], stride=2)
@@ -287,7 +288,6 @@ class ResNet(nn.Module, ABC):
         # hardcoded for now
         last_hid = nf * 8 * block.expansion if input_size[1] in [8, 16, 21, 32, 42] else 160
         self.linear = nn.Linear(last_hid, num_classes)
-        self.fc = self.linear
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -376,3 +376,19 @@ def l2_loss(model):
     Calculates l2 norm of weights. Can be used as loss.
     """
     return torch.sum(torch.stack([torch.norm(p) for p in model.parameters()]))
+
+
+def label_convert(labels: torch.Tensor, real_labels: Dict[int, int]) -> torch.Tensor:
+    """
+    :param labels: the labels to convert
+    :param real_labels: a lookup dictionary from the real labels to the heads labels.
+    :return: a tensor containing the converted labels.
+    """
+    return torch.tensor([real_labels[lab.item()] for lab in labels], dtype=labels.dtype, device=labels.device)
+
+
+def create_label_dicts(task_labels: Sequence[Sequence[int]]) -> Sequence[Dict[int, int]]:
+    """
+    Create a sequence of dicts (label: index) such that it is fast to convert.
+    """
+    return [{label: i for i, label in enumerate(task)} for task in task_labels]

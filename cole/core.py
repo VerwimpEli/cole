@@ -204,6 +204,23 @@ def get_split_mini_imagenet(task_labels: Sequence[Sequence[int]], joint=False, t
     return DataSplit(train_ds, None, test_ds)
 
 
+class MultiHeadModel(nn.Module):
+
+    def __init__(self, backbone: nn.Module, num_heads: int, classes_per_head: int, in_features: int):
+        """
+        :param backbone: backbone of the multi-head network. The backbone should not have a classification head,
+        although in theory you could also use that as the representation.
+        """
+        super().__init__()
+        self.backbone = backbone
+        self.heads = nn.ModuleList([nn.Linear(in_features, classes_per_head) for _ in range(num_heads)])
+
+    def forward(self, x, task: int):
+        x = self.backbone(x)
+        x = self.heads[task](x)
+        return x
+
+
 class MLP(nn.Module, ABC):
     def __init__(self, nb_classes=10, hid_nodes=400, hid_layers=2, down_sample=1, input_size=28, in_channels=1):
         """
@@ -302,6 +319,34 @@ def test(model, loaders, avg=True, device='cpu', loss_func=None, print_result=Fa
         return acc_arr, loss_arr
 
 
+# TODO: combine with normal test?
+@torch.no_grad()
+def test_multitask(model, loaders, real_labels, device='cpu', print_result=True):
+    loss_results, acc_results = [], []
+    for t, loader in enumerate(loaders):
+        correct, length = 0, 0
+        loss = 0.0
+
+        for data, target in loader:
+            data, target = data.to(device), target.to(device)
+            target = label_convert(target, real_labels[t])
+
+            output = model(data, t)
+            loss += torch.nn.functional.cross_entropy(output, target)
+            pred = output.argmax(dim=1, keepdim=True)
+            correct += pred.eq(target.view_as(pred)).sum().item()
+            length += len(target)
+
+        loss_results.append(loss.item() / length)
+        acc_results.append(correct / length)
+
+    if print_result:
+        for t, (loss, acc) in enumerate(zip(loss_results, acc_results)):
+            print(f'Test {t} | Acc: {acc * 100:.2f}%  Loss: {loss:.5f}')
+
+    return acc_results, loss_results
+
+
 def test_per_class(model, loaders, device='cpu', print_result=False):
     if isinstance(loaders, torch.utils.data.DataLoader):
         loaders = [loaders]
@@ -326,7 +371,6 @@ def test_per_class(model, loaders, device='cpu', print_result=False):
     return acc, loss
 
 
-# TODO: make sampler retriever abstract (?) such that user can implement own.
 # TODO: although it acts as a dataset, transformed tensors are stored instead of raw images as in XYDataset
 class Buffer(torch.utils.data.Dataset):
 
